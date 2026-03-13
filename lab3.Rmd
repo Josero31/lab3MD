@@ -1,6 +1,6 @@
 ---
 title: "Lab 3 - Análisis Exploratorio de Datos y Agrupamiento"
-author: "Jose Sanchez"
+author: "Jose Sanchez, Roberto Najera"
 date: "2026-03-13"
 output:
   html_document:
@@ -411,6 +411,196 @@ datos_con_ciudad %>%
        x = NULL, y = "Proporción", fill = "Cluster") +
   theme_minimal()
 ```
+
+
+# Modelos de Regresión Lineal para Predicción de Precio
+
+El objetivo de esta sección es construir modelos de regresión lineal que permitan predecir el precio por noche (price_num) de los alojamientos a partir de variables del dataset.
+
+Primero se divide el conjunto de datos en entrenamiento y prueba, luego se construyen:
+
+	1.	Regresión lineal simple (univariada)
+
+	2.	Regresión lineal múltiple
+
+	3.	Evaluación de multicolinealidad
+
+	4.	Selección de variables relevantes
+
+## División del Dataset: Entrenamiento y Prueba
+
+Para evaluar la capacidad predictiva de los modelos, se divide el dataset en:
+
+	•	80% entrenamiento
+
+	•	20% prueba
+
+Se fija una semilla para asegurar reproducibilidad.
+```{r}
+set.seed(123)
+# dataset para regresión
+datos_modelo <- listings_clean %>%
+  select(price_num, accommodates, bedrooms, beds,
+         review_scores_rating, reviews_per_month,
+         minimum_nights, availability_365) %>%
+  drop_na()
+
+n <- nrow(datos_modelo)
+
+train_index <- sample(seq_len(n), size = 0.8*n)
+
+train_data <- datos_modelo[train_index, ]
+test_data  <- datos_modelo[-train_index, ]
+
+cat("Filas entrenamiento:", nrow(train_data), "\n")
+cat("Filas prueba:", nrow(test_data), "\n")
+```
+
+
+## Regresión Lineal Simple
+
+Se construye primero un modelo univariado usando accommodates como predictor del precio, ya que en el análisis exploratorio se observó que el precio tiende a aumentar con la capacidad del alojamiento.
+
+```{r}
+modelo_simple <- lm(price_num ~ accommodates, data = train_data)
+summary(modelo_simple)
+```
+
+
+El resumen del modelo permite evaluar:
+
+	•	Significancia del predictor
+
+	•	Coeficientes del modelo
+
+	•	R² (capacidad explicativa)
+
+### Visualización del Modelo
+
+```{r}
+ggplot(train_data, aes(x = accommodates, y = price_num)) +
+  geom_point(alpha = 0.4, color = "#2E86C1") +
+  geom_smooth(method = "lm", color = "#C0392B", se = TRUE) +
+  scale_y_continuous(labels = dollar) +
+  labs(title = "Regresión Lineal Simple: Precio vs Capacidad",
+       x = "Capacidad de huéspedes",
+       y = "Precio por noche (USD)") +
+  theme_minimal()
+```
+
+
+En el gráfico se observa una tendencia positiva, lo que indica que los alojamientos con mayor capacidad tienden a tener precios más altos.
+
+### Análisis de Residuos del Modelo Simple
+
+El análisis de residuos permite evaluar si el modelo cumple los supuestos de regresión lineal.
+
+```{r}
+par(mfrow=c(2,2))
+plot(modelo_simple)
+par(mfrow=c(1,1))
+```
+
+Se analizan:
+
+	•	Normalidad de los residuos
+
+	•	Homocedasticidad
+
+	•	Observaciones influyentes
+
+## Regresión Lineal Múltiple
+
+Ahora se construye un modelo utilizando todas las variables numéricas disponibles como predictores del precio.
+
+```{r}
+modelo_multiple <- lm(price_num ~ ., data = train_data)
+
+summary(modelo_multiple)
+```
+
+Este modelo permite evaluar cuáles variables aportan mayor información para predecir el precio.
+
+Las variables con p-value bajo (< 0.05) se consideran estadísticamente significativas.
+
+
+## Análisis de Multicolinealidad
+
+La multicolinealidad ocurre cuando varias variables predictoras están altamente correlacionadas entre sí, lo que puede afectar la estabilidad del modelo.
+
+Se utiliza el Variance Inflation Factor (VIF).
+
+```{r}
+library(car)
+vif(modelo_multiple)
+
+```
+
+
+Interpretación general del VIF:
+
+	•	VIF < 5 → sin problemas de colinealidad
+
+	•	VIF 5–10 → colinealidad moderada
+
+	•	VIF > 10 → colinealidad alta
+
+Segun los resultados, no hay variables altamente correlacionadas, por lo que se pueden mantener en el modelo
+
+
+## Selección de Variables Predictoras
+
+Para mejorar el modelo y evitar sobreajuste, se puede aplicar selección de variables basada en AIC.
+
+```{r}
+modelo_step <- step(modelo_multiple, direction = "both")
+
+summary(modelo_step)
+```
+
+Este procedimiento elimina variables que no aportan significativamente al modelo.
+
+
+## Evaluación del Modelo en el Conjunto de Prueba
+
+Finalmente, se utiliza el modelo seleccionado para realizar predicciones sobre el conjunto de prueba.
+
+```{r}
+predicciones <- predict(modelo_step, newdata = test_data)
+
+rmse <- sqrt(mean((test_data$price_num - predicciones)^2))
+mae  <- mean(abs(test_data$price_num - predicciones))
+
+cat("RMSE:", rmse, "\n")
+cat("MAE:", mae, "\n")
+```
+
+Las métricas utilizadas para evaluar el modelo son:
+
+	•	RMSE (Root Mean Squared Error): penaliza errores grandes.
+
+	•	MAE (Mean Absolute Error): error promedio absoluto.
+
+Valores más bajos indican mejor capacidad predictiva.
+
+
+### Interpretación del Modelo
+
+Los resultados del modelo muestran que variables como:
+	
+	•	accommodates
+	
+	•	bedrooms
+	
+	•	beds
+	
+	•	review_scores_rating
+
+tienden a influir positivamente en el precio del alojamiento.
+
+Esto sugiere que las características físicas del alojamiento y su calidad percibida por los huéspedes son factores clave para determinar el precio de mercado.
+
+
 
 # Conclusiones
 
