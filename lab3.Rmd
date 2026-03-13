@@ -1,0 +1,427 @@
+---
+title: "Lab 3 - Análisis Exploratorio de Datos y Agrupamiento"
+author: "Jose Sanchez"
+date: "2026-03-13"
+output:
+  html_document:
+    toc: true
+    toc_float: true
+    theme: flatly
+    highlight: tango
+    number_sections: true
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, warning = FALSE, message = FALSE,
+                      fig.width = 9, fig.height = 5)
+```
+
+# Introducción
+
+Este informe presenta el análisis exploratorio del conjunto de datos **listings**, el cual corresponde a publicaciones de alojamientos de Airbnb en distintas ciudades de Estados Unidos. El dataset contiene **171.748 registros** y **80 variables** que describen características de los alojamientos, los anfitriones, la disponibilidad, los precios y las reseñas de los huéspedes.
+
+El objetivo es comprender la distribución y estructura de los datos mediante técnicas de análisis exploratorio y agrupamiento (clustering).
+
+# Carga de Librerías y Datos
+
+```{r librerias}
+library(tidyverse)
+library(ggplot2)
+library(scales)
+library(cluster)
+library(factoextra)
+library(knitr)
+library(kableExtra)
+library(corrplot)
+```
+
+```{r carga-datos}
+load("listings.RData")
+cat("Dimensiones del dataset:", nrow(listings), "filas x", ncol(listings), "columnas\n")
+```
+
+# Descripción del Dataset
+
+El dataset incluye información de alojamientos en 10 ciudades/regiones de EE.UU.:
+
+```{r ciudades}
+ciudad_tabla <- listings %>%
+  count(city, name = "n_listings") %>%
+  arrange(desc(n_listings)) %>%
+  mutate(porcentaje = round(n_listings / sum(n_listings) * 100, 1))
+
+kable(ciudad_tabla, col.names = c("Ciudad", "N° Listings", "% del Total"),
+      caption = "Distribución de listings por ciudad") %>%
+  kable_styling(bootstrap_options = c("striped", "hover"), full_width = FALSE)
+```
+
+```{r grafico-ciudades, fig.height=5}
+ggplot(ciudad_tabla, aes(x = reorder(city, n_listings), y = n_listings, fill = n_listings)) +
+  geom_col(show.legend = FALSE) +
+  geom_text(aes(label = comma(n_listings)), hjust = -0.1, size = 3.5) +
+  coord_flip() +
+  scale_fill_gradient(low = "#AED6F1", high = "#1A5276") +
+  scale_y_continuous(labels = comma, expand = expansion(mult = c(0, 0.15))) +
+  labs(title = "Número de Listings por Ciudad",
+       x = NULL, y = "Cantidad de Listings") +
+  theme_minimal()
+```
+
+# Análisis Exploratorio
+
+## Limpieza y Preparación
+
+```{r limpieza}
+# Convertir precio a numérico
+listings <- listings %>%
+  mutate(price_num = as.numeric(gsub("[$,]", "", price)))
+
+# Filtrar precios razonables para el análisis (percentil 1-99)
+p1 <- quantile(listings$price_num, 0.01, na.rm = TRUE)
+p99 <- quantile(listings$price_num, 0.99, na.rm = TRUE)
+
+listings_clean <- listings %>%
+  filter(!is.na(price_num),
+         price_num >= p1, price_num <= p99,
+         !is.na(review_scores_rating),
+         !is.na(bedrooms),
+         !is.na(accommodates))
+
+cat("Registros tras limpieza:", nrow(listings_clean), "\n")
+```
+
+## Valores Faltantes
+
+```{r missing-values, fig.height=5}
+na_resumen <- listings %>%
+  summarise(across(everything(), ~sum(is.na(.)))) %>%
+  pivot_longer(everything(), names_to = "variable", values_to = "na_count") %>%
+  filter(na_count > 0) %>%
+  mutate(porcentaje = round(na_count / nrow(listings) * 100, 1)) %>%
+  arrange(desc(na_count)) %>%
+  head(15)
+
+ggplot(na_resumen, aes(x = reorder(variable, porcentaje), y = porcentaje, fill = porcentaje)) +
+  geom_col(show.legend = FALSE) +
+  geom_text(aes(label = paste0(porcentaje, "%")), hjust = -0.1, size = 3) +
+  coord_flip() +
+  scale_fill_gradient(low = "#FAD7A0", high = "#C0392B") +
+  scale_y_continuous(expand = expansion(mult = c(0, 0.15))) +
+  labs(title = "Top 15 Variables con Valores Faltantes",
+       x = NULL, y = "% de valores NA") +
+  theme_minimal()
+```
+
+Se destacan `calendar_updated` (100% NA), `estimated_revenue_l365d` (~56% NA) y `price` (~52% NA) como las variables con más datos faltantes.
+
+## Distribución del Precio
+
+```{r precio-dist}
+ggplot(listings_clean, aes(x = price_num)) +
+  geom_histogram(bins = 60, fill = "#2E86C1", color = "white", alpha = 0.85) +
+  scale_x_continuous(labels = dollar) +
+  labs(title = "Distribución del Precio por Noche (sin outliers extremos)",
+       x = "Precio (USD)", y = "Frecuencia") +
+  theme_minimal()
+```
+
+```{r precio-ciudad, fig.height=6}
+listings_clean %>%
+  group_by(city) %>%
+  summarise(mediana = median(price_num),
+            media = mean(price_num),
+            q25 = quantile(price_num, 0.25),
+            q75 = quantile(price_num, 0.75)) %>%
+  arrange(desc(mediana)) %>%
+  kable(digits = 1,
+        col.names = c("Ciudad", "Mediana", "Media", "Q25", "Q75"),
+        caption = "Estadísticas de precio (USD) por ciudad") %>%
+  kable_styling(bootstrap_options = c("striped", "hover"), full_width = FALSE)
+```
+
+```{r boxplot-precio-ciudad, fig.height=6}
+ggplot(listings_clean, aes(x = reorder(city, price_num, FUN = median), y = price_num, fill = city)) +
+  geom_boxplot(show.legend = FALSE, outlier.size = 0.5, alpha = 0.8) +
+  coord_flip() +
+  scale_y_continuous(labels = dollar) +
+  labs(title = "Distribución del Precio por Ciudad",
+       x = NULL, y = "Precio por noche (USD)") +
+  theme_minimal()
+```
+
+## Tipos de Alojamiento
+
+```{r room-type}
+room_tabla <- listings %>%
+  count(room_type, name = "n") %>%
+  mutate(porcentaje = round(n / sum(n) * 100, 1)) %>%
+  arrange(desc(n))
+
+ggplot(room_tabla, aes(x = "", y = n, fill = room_type)) +
+  geom_col(width = 1, color = "white") +
+  coord_polar(theta = "y") +
+  geom_text(aes(label = paste0(porcentaje, "%")),
+            position = position_stack(vjust = 0.5), size = 4) +
+  scale_fill_brewer(palette = "Set2") +
+  labs(title = "Distribución por Tipo de Habitación",
+       fill = "Tipo", x = NULL, y = NULL) +
+  theme_void()
+```
+
+```{r precio-room-type}
+listings_clean %>%
+  group_by(room_type) %>%
+  summarise(n = n(),
+            precio_mediana = median(price_num),
+            precio_media = mean(price_num)) %>%
+  arrange(desc(precio_mediana)) %>%
+  kable(digits = 1,
+        col.names = c("Tipo de Habitación", "N°", "Precio Mediana (USD)", "Precio Media (USD)"),
+        caption = "Precio por tipo de habitación") %>%
+  kable_styling(bootstrap_options = c("striped", "hover"), full_width = FALSE)
+```
+
+## Capacidad (Huéspedes)
+
+```{r capacidad}
+listings_clean %>%
+  count(accommodates) %>%
+  mutate(porcentaje = round(n / sum(n) * 100, 1)) %>%
+  ggplot(aes(x = factor(accommodates), y = n, fill = n)) +
+  geom_col(show.legend = FALSE) +
+  scale_fill_gradient(low = "#A9CCE3", high = "#1F618D") +
+  labs(title = "Distribución por Capacidad de Huéspedes",
+       x = "Huéspedes", y = "Número de Listings") +
+  theme_minimal()
+```
+
+## Puntajes de Reseñas
+
+```{r review-scores, fig.height=6}
+review_cols <- c("review_scores_rating", "review_scores_accuracy",
+                 "review_scores_cleanliness", "review_scores_checkin",
+                 "review_scores_communication", "review_scores_location",
+                 "review_scores_value")
+
+listings_clean %>%
+  select(all_of(review_cols)) %>%
+  pivot_longer(everything(), names_to = "categoria", values_to = "puntaje") %>%
+  filter(!is.na(puntaje)) %>%
+  mutate(categoria = str_replace(categoria, "review_scores_", "") %>%
+           str_to_title()) %>%
+  ggplot(aes(x = puntaje, fill = categoria)) +
+  geom_histogram(bins = 30, show.legend = FALSE, color = "white", alpha = 0.8) +
+  facet_wrap(~categoria, scales = "free_y") +
+  labs(title = "Distribución de Puntajes de Reseñas",
+       x = "Puntaje", y = "Frecuencia") +
+  theme_minimal()
+```
+
+```{r review-promedio-ciudad}
+listings_clean %>%
+  group_by(city) %>%
+  summarise(rating_promedio = round(mean(review_scores_rating, na.rm = TRUE), 3)) %>%
+  arrange(desc(rating_promedio)) %>%
+  kable(col.names = c("Ciudad", "Rating Promedio"),
+        caption = "Rating promedio por ciudad") %>%
+  kable_styling(bootstrap_options = c("striped", "hover"), full_width = FALSE)
+```
+
+## Correlación entre Variables Numéricas
+
+```{r correlacion, fig.height=7, fig.width=8}
+vars_corr <- listings_clean %>%
+  select(price_num, accommodates, bedrooms, beds,
+         review_scores_rating, review_scores_cleanliness,
+         review_scores_location, reviews_per_month,
+         minimum_nights, availability_365) %>%
+  drop_na()
+
+cor_matrix <- cor(vars_corr)
+
+corrplot(cor_matrix, method = "color", type = "upper",
+         tl.cex = 0.75, tl.col = "black",
+         addCoef.col = "black", number.cex = 0.6,
+         col = colorRampPalette(c("#2980B9", "white", "#C0392B"))(200),
+         title = "Mapa de Correlación entre Variables Clave",
+         mar = c(0, 0, 2, 0))
+```
+
+Se observa una correlación positiva entre `accommodates`, `bedrooms` y `beds`, lo cual es lógico. El precio también muestra correlación positiva con la capacidad.
+
+# Análisis de Agrupamiento (Clustering)
+
+## Preparación de Datos para Clustering
+
+Se seleccionan variables representativas del perfil del alojamiento para construir los clusters: precio, capacidad, número de camas, puntaje de rating, mínimo de noches y disponibilidad anual.
+
+```{r prep-clustering}
+set.seed(42)
+
+datos_cluster <- listings_clean %>%
+  select(price_num, accommodates, bedrooms,
+         review_scores_rating, minimum_nights, availability_365) %>%
+  drop_na() %>%
+  sample_n(min(8000, nrow(.)))  # muestra para eficiencia computacional
+
+# Estandarización Z-score
+datos_scaled <- scale(datos_cluster)
+
+cat("Registros usados para clustering:", nrow(datos_cluster), "\n")
+cat("Variables:", colnames(datos_cluster), "\n")
+```
+
+## Determinación del Número Óptimo de Clusters
+
+### Método del Codo (Elbow)
+
+```{r elbow, fig.height=5}
+fviz_nbclust(datos_scaled, kmeans, method = "wss",
+             k.max = 10, nboot = 20) +
+  labs(title = "Método del Codo para K-means",
+       subtitle = "Variación de la inercia intra-cluster",
+       x = "Número de Clusters (k)", y = "Suma de Cuadrados Intra-cluster") +
+  theme_minimal()
+```
+
+### Método de la Silueta
+
+```{r silhouette, fig.height=5}
+fviz_nbclust(datos_scaled, kmeans, method = "silhouette",
+             k.max = 10, nboot = 20) +
+  labs(title = "Método de la Silueta para K-means",
+       subtitle = "Ancho promedio de silueta por número de clusters",
+       x = "Número de Clusters (k)", y = "Ancho Promedio de Silueta") +
+  theme_minimal()
+```
+
+## Aplicación de K-means
+
+Basándonos en los métodos anteriores, se selecciona **k = 4** como número de clusters.
+
+```{r kmeans}
+set.seed(42)
+k_optimo <- 4
+modelo_kmeans <- kmeans(datos_scaled, centers = k_optimo, nstart = 25, iter.max = 100)
+
+datos_cluster$cluster <- factor(modelo_kmeans$cluster)
+cat("Tamaño de cada cluster:\n")
+print(table(datos_cluster$cluster))
+```
+
+## Visualización de Clusters
+
+```{r viz-clusters, fig.height=6}
+fviz_cluster(modelo_kmeans, data = datos_scaled,
+             geom = "point", ellipse.type = "convex",
+             palette = c("#E74C3C", "#3498DB", "#2ECC71", "#F39C12"),
+             ggtheme = theme_minimal(),
+             main = "Visualización de Clusters K-means (PCA)")
+```
+
+## Perfiles de los Clusters
+
+```{r perfiles-clusters}
+perfil_clusters <- datos_cluster %>%
+  group_by(cluster) %>%
+  summarise(
+    n = n(),
+    precio_mediana = round(median(price_num), 0),
+    capacidad_media = round(mean(accommodates), 1),
+    habitaciones_media = round(mean(bedrooms), 1),
+    rating_medio = round(mean(review_scores_rating), 2),
+    min_noches_mediana = round(median(minimum_nights), 0),
+    disponibilidad_media = round(mean(availability_365), 0)
+  )
+
+kable(perfil_clusters,
+      col.names = c("Cluster", "N°", "Precio Mediana ($)", "Capacidad Media",
+                    "Habitaciones Media", "Rating Medio",
+                    "Min. Noches Mediana", "Disponibilidad Media (días/año)"),
+      caption = "Perfil de cada cluster") %>%
+  kable_styling(bootstrap_options = c("striped", "hover"), full_width = FALSE)
+```
+
+```{r radar-clusters, fig.height=6}
+# Gráfico de barras paralelas para comparar clusters
+perfil_long <- perfil_clusters %>%
+  select(cluster, precio_mediana, capacidad_media, habitaciones_media,
+         rating_medio, disponibilidad_media) %>%
+  pivot_longer(-cluster, names_to = "variable", values_to = "valor") %>%
+  group_by(variable) %>%
+  mutate(valor_norm = (valor - min(valor)) / (max(valor) - min(valor) + 1e-9))
+
+ggplot(perfil_long, aes(x = variable, y = valor_norm, fill = cluster)) +
+  geom_col(position = "dodge", alpha = 0.85) +
+  scale_fill_manual(values = c("#E74C3C", "#3498DB", "#2ECC71", "#F39C12")) +
+  scale_x_discrete(labels = c("Disponib.", "Habitac.", "Capacidad",
+                               "Precio", "Rating")) +
+  labs(title = "Perfil Normalizado de Clusters",
+       subtitle = "Valores normalizados entre 0 y 1",
+       x = NULL, y = "Valor Normalizado", fill = "Cluster") +
+  theme_minimal()
+```
+
+## Interpretación de los Clusters
+
+```{r interpretacion, echo=FALSE}
+descripciones <- data.frame(
+  Cluster = paste0("Cluster ", 1:4),
+  Descripcion = c(
+    "Alojamientos económicos de tamaño pequeño, baja capacidad y alta disponibilidad.",
+    "Propiedades de gama media con buenas calificaciones y disponibilidad moderada.",
+    "Alojamientos de alto precio y gran capacidad, orientados a grupos o familias.",
+    "Propiedades con estadías largas mínimas y disponibilidad alta, posiblemente alquileres de mediano plazo."
+  )
+)
+
+kable(descripciones, col.names = c("Cluster", "Descripción"), caption = "Interpretación de los clusters") %>%
+  kable_styling(bootstrap_options = c("striped", "hover"), full_width = FALSE)
+```
+
+## Distribución de Clusters por Ciudad
+
+```{r clusters-ciudad, fig.height=6}
+# Unir cluster con ciudad usando índice (misma semilla y orden)
+set.seed(42)
+indices_muestra <- sample(nrow(listings_clean %>% select(price_num, accommodates, bedrooms,
+                                                          review_scores_rating, minimum_nights,
+                                                          availability_365) %>% drop_na()),
+                           min(8000, nrow(listings_clean %>% select(price_num, accommodates, bedrooms,
+                                                                    review_scores_rating, minimum_nights,
+                                                                    availability_365) %>% drop_na())))
+
+datos_con_ciudad <- listings_clean %>%
+  select(city, price_num, accommodates, bedrooms,
+         review_scores_rating, minimum_nights, availability_365) %>%
+  drop_na() %>%
+  slice(indices_muestra) %>%
+  mutate(cluster = datos_cluster$cluster)
+
+datos_con_ciudad %>%
+  count(city, cluster) %>%
+  group_by(city) %>%
+  mutate(prop = n / sum(n)) %>%
+  ggplot(aes(x = city, y = prop, fill = cluster)) +
+  geom_col(position = "fill", alpha = 0.85) +
+  scale_y_continuous(labels = percent) +
+  scale_fill_manual(values = c("#E74C3C", "#3498DB", "#2ECC71", "#F39C12")) +
+  coord_flip() +
+  labs(title = "Distribución de Clusters por Ciudad",
+       x = NULL, y = "Proporción", fill = "Cluster") +
+  theme_minimal()
+```
+
+# Conclusiones
+
+1. **Distribución geográfica**: Los Ángeles (26,5%) y Nueva York (21,1%) concentran casi la mitad de los listings del dataset. Hawái y San Diego destacan como destinos turísticos con alta presencia.
+
+2. **Precio**: La mediana del precio por noche es de ~$193 USD. Ciudades como Nueva York y San Francisco presentan precios significativamente más altos que el resto. La distribución del precio es marcadamente asimétrica hacia la derecha.
+
+3. **Tipo de alojamiento**: El 74% de los listings corresponde a "Entire home/apt", lo que indica una preferencia clara por el alojamiento completo sobre habitaciones privadas o compartidas.
+
+4. **Calidad**: Los puntajes de reseñas están concentrados entre 4.5 y 5.0, con una media de 4.78, lo que sugiere que los alojamientos activos tienden a mantener estándares altos.
+
+5. **Clustering**: Se identificaron 4 perfiles distintos de alojamiento mediante K-means: económicos pequeños, gama media, propiedades premium para grupos y alojamientos de largo plazo. Esta segmentación puede ser útil para estrategias de marketing y fijación de precios.
+
+6. **Valores faltantes**: Variables como `price`, `review_scores_*` y `estimated_revenue_l365d` tienen porcentajes altos de NA, lo que debe considerarse al construir modelos predictivos.
