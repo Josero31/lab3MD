@@ -704,6 +704,156 @@ ggplot(overfitting_df, aes(x = Modelo, y = R2, fill = Conjunto)) +
 
 El `modelo_step`, al seleccionar únicamente las variables más relevantes por AIC, tiende a generalizar mejor que el `modelo_multiple` completo, reduciendo el riesgo de sobreajuste al eliminar predictores de bajo aporte. Si la diferencia entre Train y Test es mínima en ambos modelos, se concluye que no existe sobreajuste significativo y las variables seleccionadas capturan patrones reales y no ruido.
 
+# Actividad 10 — Modelo Final y Análisis Completo de Residuos
+
+## Construcción del Modelo Final
+
+Con base en el análisis de VIF, significancia estadística y la comparación Train/Test de la actividad anterior, se construye el modelo final utilizando las variables con mayor aporte predictivo y menor riesgo de multicolinealidad.
+
+```{r modelo-final}
+modelo_final <- lm(price_num ~ accommodates + bedrooms + review_scores_rating +
+                     reviews_per_month + availability_365,
+                   data = train_data)
+
+summary(modelo_final)
+```
+
+Cada coeficiente se interpreta manteniendo el resto de variables constantes: `accommodates` y `bedrooms` capturan el tamaño del alojamiento, `review_scores_rating` refleja la calidad percibida por los huéspedes, mientras que `reviews_per_month` y `availability_365` aproximan la demanda y la ocupación del inmueble. Variables como `beds` se excluyen dado que su información ya está contenida en `accommodates` y `bedrooms`, evitando redundancia.
+
+## Análisis de Residuos del Modelo Final
+
+### Normalidad de Residuos
+
+```{r residuos-normalidad, fig.height=5, fig.width=8}
+residuos  <- residuals(modelo_final)
+ajustados <- fitted(modelo_final)
+
+df_res <- data.frame(residuos = residuos, ajustados = ajustados)
+
+ggplot(df_res, aes(sample = residuos)) +
+  stat_qq(color = "#2E86C1", alpha = 0.5, size = 1) +
+  stat_qq_line(color = "#C0392B", linewidth = 1) +
+  labs(title = "Q-Q Plot de Residuos — Modelo Final",
+       subtitle = "Los puntos deben seguir la línea roja para asumir normalidad",
+       x = "Cuantiles Teóricos", y = "Cuantiles Muestrales") +
+  theme_minimal()
+```
+
+```{r shapiro-test}
+set.seed(42)
+muestra_res    <- sample(residuos, min(5000, length(residuos)))
+shapiro_result <- shapiro.test(muestra_res)
+
+cat("Shapiro-Wilk W =", round(shapiro_result$statistic, 4),
+    "\np-valor =", formatC(shapiro_result$p.value, format = "e", digits = 3), "\n")
+```
+
+Si el p-valor del test de Shapiro-Wilk es menor a 0.05 se rechaza la hipótesis de normalidad de los residuos. En datasets grandes esto es frecuente aun cuando la distribución es aproximadamente normal; por ello el Q-Q plot visual complementa el test formal: colas pesadas o asimetría marcada son señales más informativas que el p-valor por sí solo.
+
+### Homocedasticidad
+
+```{r residuos-vs-fitted}
+ggplot(df_res, aes(x = ajustados, y = residuos)) +
+  geom_point(alpha = 0.3, color = "#1F618D", size = 0.8) +
+  geom_hline(yintercept = 0, color = "#C0392B", linewidth = 1) +
+  geom_smooth(method = "loess", se = FALSE, color = "#F39C12", linewidth = 0.8) +
+  scale_x_continuous(labels = dollar) +
+  labs(title = "Residuos vs Valores Ajustados",
+       subtitle = "Un patrón aleatorio alrededor de 0 indica homocedasticidad",
+       x = "Valores Ajustados (USD)", y = "Residuos") +
+  theme_minimal()
+```
+
+```{r scale-location}
+res_std <- rstandard(modelo_final)
+
+ggplot(data.frame(ajustados = ajustados, res_std = sqrt(abs(res_std))),
+       aes(x = ajustados, y = res_std)) +
+  geom_point(alpha = 0.3, color = "#117A65", size = 0.8) +
+  geom_smooth(method = "loess", se = FALSE, color = "#C0392B", linewidth = 0.9) +
+  scale_x_continuous(labels = dollar) +
+  labs(title = "Scale-Location",
+       subtitle = "Una línea horizontal indica varianza constante (homocedasticidad)",
+       x = "Valores Ajustados (USD)",
+       y = expression(sqrt("|Residuos Estandarizados|"))) +
+  theme_minimal()
+```
+
+En el gráfico de Residuos vs Ajustados, si la nube de puntos se expande conforme aumentan los valores ajustados, existe heterocedasticidad, lo que invalidaría los intervalos de confianza estándar. El gráfico Scale-Location confirma si la dispersión es constante a lo largo del rango predicho.
+
+### Observaciones Influyentes (Cook's Distance)
+
+```{r cooks-distance, fig.height=5}
+cooks  <- cooks.distance(modelo_final)
+n_obs  <- length(cooks)
+umbral <- 4 / n_obs
+
+df_cooks <- data.frame(obs = seq_len(n_obs), cooks = cooks)
+
+ggplot(df_cooks, aes(x = obs, y = cooks)) +
+  geom_segment(aes(xend = obs, yend = 0), color = "#AAB7B8", linewidth = 0.4) +
+  geom_point(aes(color = cooks > umbral), size = 1.2) +
+  geom_hline(yintercept = umbral, color = "#C0392B",
+             linetype = "dashed", linewidth = 0.8) +
+  scale_color_manual(values = c("FALSE" = "#5D6D7E", "TRUE" = "#E74C3C"),
+                     labels = c("Normal", "Influyente"), name = NULL) +
+  annotate("text", x = n_obs * 0.85, y = umbral * 1.2,
+           label = paste0("Umbral = ", round(umbral, 5)),
+           color = "#C0392B", size = 3) +
+  labs(title = "Distancia de Cook por Observación",
+       subtitle = "Puntos rojos: observaciones con influencia desproporcionada sobre los coeficientes",
+       x = "Índice de Observación", y = "Cook's Distance") +
+  theme_minimal()
+
+n_influyentes <- sum(cooks > umbral)
+cat("Observaciones influyentes (Cook > 4/n):", n_influyentes,
+    sprintf("(%.1f%% del total)\n", 100 * n_influyentes / n_obs))
+```
+
+Observaciones con distancia de Cook superior al umbral 4/n pueden estar distorsionando los coeficientes estimados. Se recomienda revisar si corresponden a errores de captura o a propiedades genuinamente atípicas como lujos extremos o precios incorrectos.
+
+## Comparación Final de Modelos en Conjunto de Prueba
+
+```{r comparacion-final}
+metricas_modelo <- function(modelo, test) {
+  pred <- predict(modelo, newdata = test)
+  real <- test$price_num
+  data.frame(
+    RMSE = round(sqrt(mean((real - pred)^2)), 2),
+    MAE  = round(mean(abs(real - pred)), 2),
+    R2   = round(cor(real, pred)^2, 4)
+  )
+}
+
+resultados_finales <- bind_rows(
+  metricas_modelo(modelo_multiple, test_data),
+  metricas_modelo(modelo_step,     test_data),
+  metricas_modelo(modelo_final,    test_data)
+) %>%
+  mutate(Modelo = c("modelo_multiple", "modelo_step", "modelo_final")) %>%
+  select(Modelo, R2, RMSE, MAE)
+
+resultados_finales %>%
+  kable(caption = "Comparación de métricas en conjunto de prueba") %>%
+  kable_styling(bootstrap_options = c("striped", "hover", "condensed"), full_width = FALSE)
+```
+
+```{r barras-comparacion, fig.height=4}
+resultados_finales %>%
+  pivot_longer(c(RMSE, MAE), names_to = "Metrica", values_to = "Valor") %>%
+  ggplot(aes(x = Modelo, y = Valor, fill = Modelo)) +
+  geom_col(alpha = 0.85, show.legend = FALSE) +
+  geom_text(aes(label = round(Valor, 1)), vjust = -0.4, size = 3.5) +
+  facet_wrap(~Metrica, scales = "free_y") +
+  scale_fill_manual(values = c("#2E86C1", "#27AE60", "#E67E22")) +
+  labs(title = "RMSE y MAE en Conjunto de Prueba por Modelo",
+       subtitle = "Valores más bajos indican mejor capacidad predictiva",
+       x = NULL, y = "USD") +
+  theme_minimal()
+```
+
+El `modelo_final`, construido con las variables de mayor aporte y menor multicolinealidad, ofrece un balance adecuado entre ajuste y generalización. Si su RMSE y MAE en prueba son similares o inferiores a los del `modelo_multiple`, confirma que simplificar el modelo no sacrificó capacidad predictiva y reduce el riesgo de sobreajuste.
+
 # Conclusiones
 
 1. **Distribución geográfica**: Los Ángeles (26,5%) y Nueva York (21,1%) concentran casi la mitad de los listings del dataset. Hawái y San Diego destacan como destinos turísticos con alta presencia.
