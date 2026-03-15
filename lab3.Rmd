@@ -600,7 +600,38 @@ tienden a influir positivamente en el precio del alojamiento.
 
 Esto sugiere que las características físicas del alojamiento y su calidad percibida por los huéspedes son factores clave para determinar el precio de mercado.
 
+# Actividad 9 — Análisis Profundo: Correlación, Bondad de Ajuste y Overfitting
 
+## Análisis de Correlación entre Predictores (Heatmap numérico)
+
+El heatmap de correlación permite identificar visualmente qué pares de variables comparten información redundante, lo cual es el origen de la multicolinealidad.
+
+```{r heatmap-correlacion, fig.height=6, fig.width=7}
+vars_pred <- train_data %>%
+  select(accommodates, bedrooms, beds,
+         review_scores_rating, reviews_per_month,
+         minimum_nights, availability_365)
+
+cor_mat <- cor(vars_pred, use = "complete.obs")
+
+cor_df <- as.data.frame(cor_mat) %>%
+  rownames_to_column("var1") %>%
+  pivot_longer(-var1, names_to = "var2", values_to = "correlacion")
+
+ggplot(cor_df, aes(x = var1, y = var2, fill = correlacion)) +
+  geom_tile(color = "white", linewidth = 0.5) +
+  geom_text(aes(label = round(correlacion, 2)), size = 3.2, color = "black") +
+  scale_fill_gradient2(low = "#2980B9", mid = "white", high = "#C0392B",
+                       midpoint = 0, limits = c(-1, 1),
+                       name = "Correlación") +
+  labs(title = "Heatmap de Correlación entre Predictores",
+       subtitle = "Valores cercanos a ±1 indican alta correlación lineal",
+       x = NULL, y = NULL) +
+  theme_minimal(base_size = 11) +
+  theme(axis.text.x = element_text(angle = 35, hjust = 1))
+```
+
+Las variables `accommodates`, `bedrooms` y `beds` presentan correlaciones moderadas-altas entre sí, lo cual es esperable dado que un alojamiento más grande tiende a tener más habitaciones y más camas. Si algún par supera |0.7|, existe riesgo de multicolinealidad que puede inflar los errores estándar de los coeficientes. Los VIF calculados previamente confirman o descartan este riesgo de forma formal.
 
 # Conclusiones
 
