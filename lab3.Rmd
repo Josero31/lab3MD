@@ -633,6 +633,77 @@ ggplot(cor_df, aes(x = var1, y = var2, fill = correlacion)) +
 
 Las variables `accommodates`, `bedrooms` y `beds` presentan correlaciones moderadas-altas entre sí, lo cual es esperable dado que un alojamiento más grande tiende a tener más habitaciones y más camas. Si algún par supera |0.7|, existe riesgo de multicolinealidad que puede inflar los errores estándar de los coeficientes. Los VIF calculados previamente confirman o descartan este riesgo de forma formal.
 
+## Bondad de Ajuste: R², R² Ajustado y F-statistic
+
+```{r bondad-ajuste}
+resumen_multiple <- summary(modelo_multiple)
+
+r2       <- resumen_multiple$r.squared
+r2_adj   <- resumen_multiple$adj.r.squared
+f_stat   <- resumen_multiple$fstatistic[1]
+f_df1    <- resumen_multiple$fstatistic[2]
+f_df2    <- resumen_multiple$fstatistic[3]
+p_fstat  <- pf(f_stat, f_df1, f_df2, lower.tail = FALSE)
+
+tibble(
+  Métrica = c("R²", "R² Ajustado", "F-statistic", "p-valor (F)"),
+  Valor   = c(round(r2, 4), round(r2_adj, 4),
+              round(f_stat, 2), formatC(p_fstat, format = "e", digits = 2))
+) %>%
+  kable(caption = "Métricas globales — modelo_multiple") %>%
+  kable_styling(bootstrap_options = c("striped", "hover"), full_width = FALSE)
+```
+
+El **R²** indica qué proporción de la varianza del precio es explicada por el conjunto de predictores. El **R² Ajustado** penaliza la adición de variables irrelevantes: si es considerablemente menor que R², el modelo puede estar incluyendo variables poco útiles. El **F-statistic** y su p-valor prueban que al menos un predictor aporta información; un p-valor < 0.05 confirma que el modelo como conjunto es estadísticamente significativo.
+
+## Comparación de R² en Train vs Test (Detección de Overfitting)
+
+Comparar el R² en entrenamiento con el obtenido en prueba es la forma más directa de detectar sobreajuste. Si la diferencia es pequeña (< 0.05), el modelo generaliza bien; una brecha mayor indica que el modelo memorizó el ruido del conjunto de entrenamiento.
+
+```{r overfitting-comparacion}
+pred_mult_train <- predict(modelo_multiple, newdata = train_data)
+pred_mult_test  <- predict(modelo_multiple, newdata = test_data)
+
+r2_train_mult <- cor(train_data$price_num, pred_mult_train)^2
+r2_test_mult  <- cor(test_data$price_num,  pred_mult_test)^2
+
+pred_step_train <- predict(modelo_step, newdata = train_data)
+pred_step_test  <- predict(modelo_step, newdata = test_data)
+
+r2_train_step <- cor(train_data$price_num, pred_step_train)^2
+r2_test_step  <- cor(test_data$price_num,  pred_step_test)^2
+
+overfitting_df <- tibble(
+  Modelo   = c("modelo_multiple", "modelo_multiple", "modelo_step", "modelo_step"),
+  Conjunto = c("Train", "Test", "Train", "Test"),
+  R2       = c(r2_train_mult, r2_test_mult, r2_train_step, r2_test_step)
+)
+
+overfitting_df %>%
+  pivot_wider(names_from = Conjunto, values_from = R2) %>%
+  mutate(Diferencia = round(Train - Test, 4),
+         Train = round(Train, 4),
+         Test  = round(Test, 4)) %>%
+  kable(caption = "Comparación R² Train vs Test por modelo") %>%
+  kable_styling(bootstrap_options = c("striped", "hover"), full_width = FALSE)
+```
+
+```{r overfitting-grafico}
+ggplot(overfitting_df, aes(x = Modelo, y = R2, fill = Conjunto)) +
+  geom_col(position = "dodge", alpha = 0.85, width = 0.5) +
+  geom_text(aes(label = round(R2, 3)),
+            position = position_dodge(width = 0.5),
+            vjust = -0.4, size = 3.5) +
+  scale_fill_manual(values = c("Train" = "#2E86C1", "Test" = "#E74C3C")) +
+  scale_y_continuous(limits = c(0, 1)) +
+  labs(title = "R² en Entrenamiento vs Prueba",
+       subtitle = "Una brecha grande entre ambas barras indica sobreajuste",
+       x = NULL, y = "R²", fill = "Conjunto") +
+  theme_minimal()
+```
+
+El `modelo_step`, al seleccionar únicamente las variables más relevantes por AIC, tiende a generalizar mejor que el `modelo_multiple` completo, reduciendo el riesgo de sobreajuste al eliminar predictores de bajo aporte. Si la diferencia entre Train y Test es mínima en ambos modelos, se concluye que no existe sobreajuste significativo y las variables seleccionadas capturan patrones reales y no ruido.
+
 # Conclusiones
 
 1. **Distribución geográfica**: Los Ángeles (26,5%) y Nueva York (21,1%) concentran casi la mitad de los listings del dataset. Hawái y San Diego destacan como destinos turísticos con alta presencia.
