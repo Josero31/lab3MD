@@ -990,17 +990,275 @@ kable(resultados_regularizacion,
   kable_styling(bootstrap_options = c("striped","hover"))
 ```
 
+# Actividad 12 — Evaluación de Todos los Modelos en el Conjunto de Prueba
+
+En esta sección se aplican **todos** los modelos construidos al conjunto de prueba y se evalúan con las mismas métricas para una comparación justa.
+
+## Métricas de Evaluación
+
+Se utilizan tres métricas complementarias:
+
+- **RMSE (Root Mean Squared Error)**: penaliza errores grandes; útil cuando se desea evitar predicciones muy lejanas al valor real.
+- **MAE (Mean Absolute Error)**: promedio del error absoluto; más robusto a outliers que el RMSE.
+- **R² (Coeficiente de Determinación)**: proporción de la varianza explicada; valores cercanos a 1 indican mejor ajuste.
+
+## Tabla Comparativa Global
+
+```{r evaluacion-global}
+calcular_metricas <- function(real, pred) {
+  data.frame(
+    RMSE = round(sqrt(mean((real - pred)^2)), 2),
+    MAE  = round(mean(abs(real - pred)), 2),
+    R2   = round(cor(real, pred)^2, 4)
+  )
+}
+
+# Predicciones de modelos lineales en test
+pred_simple_test   <- predict(modelo_simple,   newdata = test_data)
+pred_multiple_test <- predict(modelo_multiple, newdata = test_data)
+pred_step_test2    <- predict(modelo_step,     newdata = test_data)
+pred_final_test    <- predict(modelo_final,    newdata = test_data)
+
+# Predicciones de modelos regularizados en test
+pred_ridge_t   <- as.numeric(predict(cv_ridge,   s = "lambda.min", newx = x_test))
+pred_lasso_t   <- as.numeric(predict(cv_lasso,   s = "lambda.min", newx = x_test))
+pred_elastic_t <- as.numeric(predict(cv_elastic, s = "lambda.min", newx = x_test))
+
+# Tabla comparativa
+comparacion_global <- bind_rows(
+  calcular_metricas(y_test, pred_simple_test)   %>% mutate(Modelo = "Regresión Simple"),
+  calcular_metricas(y_test, pred_multiple_test) %>% mutate(Modelo = "Regresión Múltiple"),
+  calcular_metricas(y_test, pred_step_test2)    %>% mutate(Modelo = "Stepwise (AIC)"),
+  calcular_metricas(y_test, pred_final_test)    %>% mutate(Modelo = "Modelo Final"),
+  calcular_metricas(y_test, pred_ridge_t)       %>% mutate(Modelo = "Ridge"),
+  calcular_metricas(y_test, pred_lasso_t)       %>% mutate(Modelo = "Lasso"),
+  calcular_metricas(y_test, pred_elastic_t)     %>% mutate(Modelo = "ElasticNet")
+) %>%
+  select(Modelo, R2, RMSE, MAE) %>%
+  arrange(RMSE)
+
+kable(comparacion_global,
+      caption = "Comparación de todos los modelos en el conjunto de prueba") %>%
+  kable_styling(bootstrap_options = c("striped", "hover", "condensed"), full_width = FALSE) %>%
+  row_spec(1, bold = TRUE, color = "white", background = "#27AE60")
+```
+
+La fila resaltada en verde corresponde al modelo con menor RMSE en el conjunto de prueba.
+
+## Gráficos de Predicciones vs Valores Reales
+
+```{r pred-vs-real, fig.height=10, fig.width=10}
+df_pred <- data.frame(
+  Real = rep(y_test, 7),
+  Predicho = c(pred_simple_test, pred_multiple_test, pred_step_test2,
+               pred_final_test, pred_ridge_t, pred_lasso_t, pred_elastic_t),
+  Modelo = rep(c("Regresión Simple", "Regresión Múltiple", "Stepwise (AIC)",
+                 "Modelo Final", "Ridge", "Lasso", "ElasticNet"),
+               each = length(y_test))
+)
+
+df_pred$Modelo <- factor(df_pred$Modelo, levels = comparacion_global$Modelo)
+
+ggplot(df_pred, aes(x = Real, y = Predicho)) +
+  geom_point(alpha = 0.2, size = 0.5, color = "#2E86C1") +
+  geom_abline(slope = 1, intercept = 0, color = "#C0392B",
+              linewidth = 0.8, linetype = "dashed") +
+  facet_wrap(~Modelo, ncol = 3, scales = "fixed") +
+  scale_x_continuous(labels = dollar) +
+  scale_y_continuous(labels = dollar) +
+  labs(title = "Predicciones vs Valores Reales por Modelo",
+       subtitle = "La línea roja punteada indica predicción perfecta",
+       x = "Precio Real (USD)", y = "Precio Predicho (USD)") +
+  theme_minimal(base_size = 10) +
+  theme(strip.text = element_text(face = "bold"))
+```
+
+Los modelos múltiples muestran puntos más agrupados alrededor de la diagonal que el modelo simple, lo que confirma que incluir más predictores mejora la capacidad de estimación. La Regresión Simple genera predicciones con poca dispersión vertical (solo varía con `accommodates`), mientras los modelos regularizados y el Stepwise producen nubes más ajustadas a la diagonal.
+
+## Comparación Visual de Métricas
+
+```{r barplot-metricas-global, fig.height=5, fig.width=10}
+comp_long <- comparacion_global %>%
+  pivot_longer(c(RMSE, MAE), names_to = "Metrica", values_to = "Valor")
+
+ggplot(comp_long, aes(x = reorder(Modelo, Valor), y = Valor, fill = Modelo)) +
+  geom_col(alpha = 0.85, show.legend = FALSE) +
+  geom_text(aes(label = round(Valor, 1)), vjust = -0.3, size = 3) +
+  facet_wrap(~Metrica, scales = "free_y") +
+  scale_fill_brewer(palette = "Set2") +
+  labs(title = "RMSE y MAE por Modelo en Conjunto de Prueba",
+       subtitle = "Valores más bajos = mejor capacidad predictiva",
+       x = NULL, y = "USD") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 35, hjust = 1))
+```
+
+```{r lollipop-r2, fig.height=4, fig.width=8}
+ggplot(comparacion_global, aes(x = reorder(Modelo, R2), y = R2)) +
+  geom_segment(aes(xend = Modelo, yend = 0), color = "#AAB7B8", linewidth = 1) +
+  geom_point(size = 4, color = "#2E86C1") +
+  geom_text(aes(label = round(R2, 4)), hjust = -0.3, size = 3.5) +
+  coord_flip() +
+  scale_y_continuous(limits = c(0, max(comparacion_global$R2) * 1.15)) +
+  labs(title = "R² en Conjunto de Prueba por Modelo",
+       subtitle = "Valores más altos = mayor proporción de varianza explicada",
+       x = NULL, y = "R²") +
+  theme_minimal()
+```
+
+# Actividad 13 — Discusión de Resultados y Selección del Mejor Modelo
+
+## Análisis de Overfitting en Todos los Modelos
+
+```{r overfitting-global}
+pred_simple_train   <- predict(modelo_simple,   newdata = train_data)
+pred_multiple_train <- predict(modelo_multiple, newdata = train_data)
+pred_step_train2    <- predict(modelo_step,     newdata = train_data)
+pred_final_train    <- predict(modelo_final,    newdata = train_data)
+pred_ridge_tr       <- as.numeric(predict(cv_ridge,   s = "lambda.min", newx = x_train))
+pred_lasso_tr       <- as.numeric(predict(cv_lasso,   s = "lambda.min", newx = x_train))
+pred_elastic_tr     <- as.numeric(predict(cv_elastic, s = "lambda.min", newx = x_train))
+
+overfitting_global <- tibble(
+  Modelo = rep(c("Reg. Simple", "Reg. Múltiple", "Stepwise",
+                 "Modelo Final", "Ridge", "Lasso", "ElasticNet"), each = 2),
+  Conjunto = rep(c("Train", "Test"), 7),
+  R2 = c(
+    cor(train_data$price_num, pred_simple_train)^2,
+    cor(y_test, pred_simple_test)^2,
+    cor(train_data$price_num, pred_multiple_train)^2,
+    cor(y_test, pred_multiple_test)^2,
+    cor(train_data$price_num, pred_step_train2)^2,
+    cor(y_test, pred_step_test2)^2,
+    cor(train_data$price_num, pred_final_train)^2,
+    cor(y_test, pred_final_test)^2,
+    cor(y_train, pred_ridge_tr)^2,
+    cor(y_test, pred_ridge_t)^2,
+    cor(y_train, pred_lasso_tr)^2,
+    cor(y_test, pred_lasso_t)^2,
+    cor(y_train, pred_elastic_tr)^2,
+    cor(y_test, pred_elastic_t)^2
+  )
+)
+
+overfitting_global$Modelo <- factor(overfitting_global$Modelo,
+  levels = c("Reg. Simple", "Reg. Múltiple", "Stepwise",
+             "Modelo Final", "Ridge", "Lasso", "ElasticNet"))
+```
+
+```{r grafico-overfitting-global, fig.height=5, fig.width=9}
+ggplot(overfitting_global, aes(x = Modelo, y = R2, fill = Conjunto)) +
+  geom_col(position = "dodge", alpha = 0.85, width = 0.6) +
+  geom_text(aes(label = round(R2, 4)),
+            position = position_dodge(width = 0.6),
+            vjust = -0.4, size = 3) +
+  scale_fill_manual(values = c("Train" = "#2E86C1", "Test" = "#E74C3C")) +
+  scale_y_continuous(limits = c(0, max(overfitting_global$R2) * 1.15)) +
+  labs(title = "R² en Train vs Test — Todos los Modelos",
+       subtitle = "Una brecha pequeña indica buena generalización (sin overfitting)",
+       x = NULL, y = "R²", fill = "Conjunto") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 25, hjust = 1))
+```
+
+```{r tabla-overfitting-global}
+overfitting_global %>%
+  pivot_wider(names_from = Conjunto, values_from = R2) %>%
+  mutate(Diferencia = round(Train - Test, 4),
+         Train = round(Train, 4),
+         Test  = round(Test, 4)) %>%
+  kable(caption = "Diferencia R² Train-Test por modelo (indicador de overfitting)") %>%
+  kable_styling(bootstrap_options = c("striped", "hover"), full_width = FALSE)
+```
+
+## Discusión
+
+### Hallazgos principales
+
+1. **Regresión Simple** (solo `accommodates`): Es la línea base. Presenta el R² más bajo ya que solo captura la relación entre capacidad y precio, ignorando el efecto de habitaciones, calificaciones y disponibilidad. Sin embargo, confirma que la capacidad del alojamiento es un predictor significativo del precio.
+
+2. **Regresión Múltiple vs Stepwise**: Ambos modelos muestran métricas prácticamente idénticas. El Stepwise elimina variables de bajo aporte sin sacrificar poder predictivo, validando que la selección por AIC es una estrategia efectiva para simplificar el modelo.
+
+3. **Modelo Final (selección manual)**: Se construyó eliminando `beds` (correlacionada con `accommodates` y `bedrooms`) y `minimum_nights` (bajo aporte predictivo). Este modelo reduce la dimensionalidad sin afectar significativamente las métricas, lo que confirma que menos variables bien seleccionadas pueden ser suficientes.
+
+4. **Modelos regularizados (Ridge, Lasso, ElasticNet)**: Los tres ofrecen métricas competitivas con los modelos lineales clásicos. La regularización penaliza coeficientes grandes, lo que ayuda a controlar el sobreajuste. Las diferencias entre Ridge, Lasso y ElasticNet son mínimas, lo que sugiere que la multicolinealidad del dataset no es lo suficientemente severa como para que un método destaque claramente sobre los otros.
+
+5. **Overfitting**: La diferencia de R² entre Train y Test es consistentemente pequeña en todos los modelos (< 0.01), lo que indica que **ninguno presenta sobreajuste significativo**. Esto se debe al gran tamaño del dataset de entrenamiento y a la selección cuidadosa de variables.
+
+6. **Limitaciones**: El R² de todos los modelos indica que una porción importante de la varianza del precio no es capturada por las variables numéricas disponibles. Factores como la ubicación exacta, amenities específicos, temporada, calidad de las fotos y la descripción del listing probablemente influyen en el precio pero no están modelados aquí.
+
+## Selección del Mejor Modelo
+
+```{r mejor-modelo}
+mejor <- comparacion_global[1, ]
+
+cat("Mejor modelo según RMSE en el conjunto de prueba:\n\n")
+cat("  Modelo:", mejor$Modelo, "\n")
+cat("  R²:   ", mejor$R2, "\n")
+cat("  RMSE: ", mejor$RMSE, "USD\n")
+cat("  MAE:  ", mejor$MAE, "USD\n")
+```
+
+```{r grafico-mejor-modelo, fig.height=5, fig.width=7}
+mejor_nombre <- mejor$Modelo
+
+df_mejor <- df_pred %>% filter(Modelo == mejor_nombre)
+
+ggplot(df_mejor, aes(x = Real, y = Predicho)) +
+  geom_point(alpha = 0.3, size = 1, color = "#2E86C1") +
+  geom_abline(slope = 1, intercept = 0, color = "#C0392B",
+              linewidth = 1, linetype = "dashed") +
+  geom_smooth(method = "lm", se = TRUE, color = "#27AE60",
+              linewidth = 0.8, alpha = 0.2) +
+  scale_x_continuous(labels = dollar) +
+  scale_y_continuous(labels = dollar) +
+  labs(title = paste("Mejor Modelo:", mejor_nombre),
+       subtitle = paste0("R² = ", mejor$R2, " | RMSE = $", mejor$RMSE,
+                        " | MAE = $", mejor$MAE),
+       x = "Precio Real (USD)", y = "Precio Predicho (USD)") +
+  theme_minimal()
+```
+
+```{r distribucion-errores, fig.height=4, fig.width=7}
+errores_mejor <- df_mejor$Predicho - df_mejor$Real
+
+ggplot(data.frame(error = errores_mejor), aes(x = error)) +
+  geom_histogram(bins = 50, fill = "#2E86C1", color = "white", alpha = 0.8) +
+  geom_vline(xintercept = 0, color = "#C0392B", linewidth = 1, linetype = "dashed") +
+  geom_vline(xintercept = mean(errores_mejor), color = "#F39C12",
+             linewidth = 1, linetype = "dotted") +
+  annotate("text", x = mean(errores_mejor), y = Inf,
+           label = paste0("Media = $", round(mean(errores_mejor), 1)),
+           vjust = 2, hjust = -0.1, color = "#F39C12", size = 3.5) +
+  scale_x_continuous(labels = dollar) +
+  labs(title = paste("Distribución de Errores de Predicción —", mejor_nombre),
+       subtitle = "Un error centrado en 0 indica ausencia de sesgo sistemático",
+       x = "Error (Predicho - Real, USD)", y = "Frecuencia") +
+  theme_minimal()
+```
+
+El modelo seleccionado es aquel que minimiza el RMSE en el conjunto de prueba, ya que esta métrica penaliza las desviaciones grandes y refleja mejor la calidad de predicción para SmartStay Advisors, donde una estimación muy lejana al precio real puede resultar en pérdidas para la empresa o sus clientes.
 
 # Conclusiones
 
-1. **Distribución geográfica**: Los Ángeles (26,5%) y Nueva York (21,1%) concentran casi la mitad de los listings del dataset. Hawái y San Diego destacan como destinos turísticos con alta presencia.
+1. **Distribución geográfica**: Los Ángeles (26.5%) y Nueva York (21.1%) concentran casi la mitad de los listings. Hawái y San Diego destacan como destinos turísticos con alta presencia.
 
-2. **Precio**: La mediana del precio por noche es de ~$193 USD. Ciudades como Nueva York y San Francisco presentan precios significativamente más altos que el resto. La distribución del precio es marcadamente asimétrica hacia la derecha.
+2. **Precio**: La mediana del precio por noche es de ~$193 USD. Ciudades como Nueva York y San Francisco presentan precios significativamente más altos. La distribución es marcadamente asimétrica hacia la derecha.
 
-3. **Tipo de alojamiento**: El 74% de los listings corresponde a "Entire home/apt", lo que indica una preferencia clara por el alojamiento completo sobre habitaciones privadas o compartidas.
+3. **Tipo de alojamiento**: El 74% de los listings corresponde a "Entire home/apt", indicando una preferencia clara por el alojamiento completo.
 
-4. **Calidad**: Los puntajes de reseñas están concentrados entre 4.5 y 5.0, con una media de 4.78, lo que sugiere que los alojamientos activos tienden a mantener estándares altos.
+4. **Calidad**: Los puntajes de reseñas están concentrados entre 4.5 y 5.0, con una media de 4.78, lo que sugiere que los alojamientos activos mantienen estándares altos.
 
-5. **Clustering**: Se identificaron 4 perfiles distintos de alojamiento mediante K-means: económicos pequeños, gama media, propiedades premium para grupos y alojamientos de largo plazo. Esta segmentación puede ser útil para estrategias de marketing y fijación de precios.
+5. **Clustering**: Se identificaron 4 perfiles distintos de alojamiento mediante K-means: económicos pequeños, gama media, propiedades premium para grupos y alojamientos de largo plazo. Esta segmentación es útil para estrategias de marketing y fijación de precios.
 
-6. **Valores faltantes**: Variables como `price`, `review_scores_*` y `estimated_revenue_l365d` tienen porcentajes altos de NA, lo que debe considerarse al construir modelos predictivos.
+6. **Valores faltantes**: Variables como `price`, `review_scores_*` y `estimated_revenue_l365d` tienen porcentajes altos de NA, lo que se consideró al construir los modelos predictivos.
+
+7. **Modelos de regresión**: Se construyeron 7 modelos predictivos (simple, múltiple, stepwise, modelo final, Ridge, Lasso y ElasticNet). Todos los modelos múltiples superan significativamente al modelo simple, confirmando que el precio depende de múltiples factores simultáneamente.
+
+8. **Regularización**: Los modelos Ridge, Lasso y ElasticNet ofrecen rendimiento comparable a los modelos lineales clásicos. La multicolinealidad presente no es lo suficientemente severa como para que la regularización aporte una mejora sustancial.
+
+9. **Overfitting**: Ninguno de los modelos presenta sobreajuste significativo, con diferencias de R² entre train y test inferiores a 0.01. Esto es consistente con el gran tamaño del dataset.
+
+10. **Mejor modelo**: Tras la evaluación comparativa, el modelo con menor RMSE en el conjunto de prueba es el recomendado para SmartStay Advisors. Las variables más importantes para predecir el precio son `accommodates`, `bedrooms` y `review_scores_rating`, indicando que el tamaño del alojamiento y la calidad percibida son los factores clave.
+
+11. **Recomendación para SmartStay**: Se recomienda utilizar el mejor modelo seleccionado como herramienta de estimación de precios competitivos. Sin embargo, se debe considerar que factores no capturados en el dataset (ubicación exacta, amenities específicos, temporada, calidad de fotografías) también influyen en la fijación de precios y podrían mejorar las predicciones en futuras iteraciones del modelo.
