@@ -3,17 +3,28 @@ title: "Lab 3 - Análisis Exploratorio de Datos y Agrupamiento"
 author: "Jose Sanchez, Roberto Najera"
 date: "2026-03-13"
 output:
+  pdf_document:
+    toc: true
+    latex_engine: pdflatex
   html_document:
     toc: true
     toc_float: true
     theme: flatly
     highlight: tango
     number_sections: true
+header-includes:
+  - \usepackage[utf8]{inputenc}
+  - \usepackage[T1]{fontenc}
+  - \usepackage{textcomp}
 ---
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE, warning = FALSE, message = FALSE,
                       fig.width = 9, fig.height = 5)
+knitr::knit_hooks$set(crop = NULL)
+options(knitr.table.format = function() {
+  if (knitr::is_latex_output()) "latex" else "html"
+})
 ```
 
 # Introducción
@@ -31,7 +42,6 @@ library(scales)
 library(cluster)
 library(factoextra)
 library(knitr)
-library(kableExtra)
 library(corrplot)
 ```
 
@@ -51,8 +61,7 @@ ciudad_tabla <- listings %>%
   mutate(porcentaje = round(n_listings / sum(n_listings) * 100, 1))
 
 kable(ciudad_tabla, col.names = c("Ciudad", "N° Listings", "% del Total"),
-      caption = "Distribución de listings por ciudad") %>%
-  kable_styling(bootstrap_options = c("striped", "hover"), full_width = FALSE)
+      caption = "Distribución de listings por ciudad")
 ```
 
 ```{r grafico-ciudades, fig.height=5}
@@ -135,8 +144,7 @@ listings_clean %>%
   arrange(desc(mediana)) %>%
   kable(digits = 1,
         col.names = c("Ciudad", "Mediana", "Media", "Q25", "Q75"),
-        caption = "Estadísticas de precio (USD) por ciudad") %>%
-  kable_styling(bootstrap_options = c("striped", "hover"), full_width = FALSE)
+        caption = "Estadísticas de precio (USD) por ciudad")
 ```
 
 ```{r boxplot-precio-ciudad, fig.height=6}
@@ -177,8 +185,7 @@ listings_clean %>%
   arrange(desc(precio_mediana)) %>%
   kable(digits = 1,
         col.names = c("Tipo de Habitación", "N°", "Precio Mediana (USD)", "Precio Media (USD)"),
-        caption = "Precio por tipo de habitación") %>%
-  kable_styling(bootstrap_options = c("striped", "hover"), full_width = FALSE)
+        caption = "Precio por tipo de habitación")
 ```
 
 ## Capacidad (Huéspedes)
@@ -223,8 +230,7 @@ listings_clean %>%
   summarise(rating_promedio = round(mean(review_scores_rating, na.rm = TRUE), 3)) %>%
   arrange(desc(rating_promedio)) %>%
   kable(col.names = c("Ciudad", "Rating Promedio"),
-        caption = "Rating promedio por ciudad") %>%
-  kable_styling(bootstrap_options = c("striped", "hover"), full_width = FALSE)
+        caption = "Rating promedio por ciudad")
 ```
 
 ## Correlación entre Variables Numéricas
@@ -338,8 +344,7 @@ kable(perfil_clusters,
       col.names = c("Cluster", "N°", "Precio Mediana ($)", "Capacidad Media",
                     "Habitaciones Media", "Rating Medio",
                     "Min. Noches Mediana", "Disponibilidad Media (días/año)"),
-      caption = "Perfil de cada cluster") %>%
-  kable_styling(bootstrap_options = c("striped", "hover"), full_width = FALSE)
+      caption = "Perfil de cada cluster")
 ```
 
 ```{r radar-clusters, fig.height=6}
@@ -375,8 +380,7 @@ descripciones <- data.frame(
   )
 )
 
-kable(descripciones, col.names = c("Cluster", "Descripción"), caption = "Interpretación de los clusters") %>%
-  kable_styling(bootstrap_options = c("striped", "hover"), full_width = FALSE)
+kable(descripciones, col.names = c("Cluster", "Descripción"), caption = "Interpretación de los clusters")
 ```
 
 ## Distribución de Clusters por Ciudad
@@ -431,9 +435,9 @@ Primero se divide el conjunto de datos en entrenamiento y prueba, luego se const
 
 Para evaluar la capacidad predictiva de los modelos, se divide el dataset en:
 
-	•	80% entrenamiento
+	-	80% entrenamiento
 
-	•	20% prueba
+	-	20% prueba
 
 Se fija una semilla para asegurar reproducibilidad.
 ```{r}
@@ -469,11 +473,11 @@ summary(modelo_simple)
 
 El resumen del modelo permite evaluar:
 
-	•	Significancia del predictor
+	-	Significancia del predictor
 
-	•	Coeficientes del modelo
+	-	Coeficientes del modelo
 
-	•	R² (capacidad explicativa)
+	-	R² (capacidad explicativa)
 
 ### Visualización del Modelo
 
@@ -503,11 +507,11 @@ par(mfrow=c(1,1))
 
 Se analizan:
 
-	•	Normalidad de los residuos
+	-	Normalidad de los residuos
 
-	•	Homocedasticidad
+	-	Homocedasticidad
 
-	•	Observaciones influyentes
+	-	Observaciones influyentes
 
 ## Regresión Lineal Múltiple
 
@@ -539,11 +543,11 @@ vif(modelo_multiple)
 
 Interpretación general del VIF:
 
-	•	VIF < 5 → sin problemas de colinealidad
+	-	VIF < 5 -> sin problemas de colinealidad
 
-	•	VIF 5–10 → colinealidad moderada
+	-	VIF 5--10 -> colinealidad moderada
 
-	•	VIF > 10 → colinealidad alta
+	-	VIF > 10 -> colinealidad alta
 
 Segun los resultados, no hay variables altamente correlacionadas, por lo que se pueden mantener en el modelo
 
@@ -577,9 +581,9 @@ cat("MAE:", mae, "\n")
 
 Las métricas utilizadas para evaluar el modelo son:
 
-	•	RMSE (Root Mean Squared Error): penaliza errores grandes.
+	-	RMSE (Root Mean Squared Error): penaliza errores grandes.
 
-	•	MAE (Mean Absolute Error): error promedio absoluto.
+	-	MAE (Mean Absolute Error): error promedio absoluto.
 
 Valores más bajos indican mejor capacidad predictiva.
 
@@ -588,19 +592,19 @@ Valores más bajos indican mejor capacidad predictiva.
 
 Los resultados del modelo muestran que variables como:
 	
-	•	accommodates
+	-	accommodates
 	
-	•	bedrooms
+	-	bedrooms
 	
-	•	beds
+	-	beds
 	
-	•	review_scores_rating
+	-	review_scores_rating
 
 tienden a influir positivamente en el precio del alojamiento.
 
 Esto sugiere que las características físicas del alojamiento y su calidad percibida por los huéspedes son factores clave para determinar el precio de mercado.
 
-# Actividad 9 — Análisis Profundo: Correlación, Bondad de Ajuste y Overfitting
+# Actividad 9 -- Análisis Profundo: Correlación, Bondad de Ajuste y Overfitting
 
 ## Análisis de Correlación entre Predictores (Heatmap numérico)
 
@@ -625,7 +629,7 @@ ggplot(cor_df, aes(x = var1, y = var2, fill = correlacion)) +
                        midpoint = 0, limits = c(-1, 1),
                        name = "Correlación") +
   labs(title = "Heatmap de Correlación entre Predictores",
-       subtitle = "Valores cercanos a ±1 indican alta correlación lineal",
+       subtitle = "Valores cercanos a +/-1 indican alta correlación lineal",
        x = NULL, y = NULL) +
   theme_minimal(base_size = 11) +
   theme(axis.text.x = element_text(angle = 35, hjust = 1))
@@ -650,8 +654,7 @@ tibble(
   Valor   = c(round(r2, 4), round(r2_adj, 4),
               round(f_stat, 2), formatC(p_fstat, format = "e", digits = 2))
 ) %>%
-  kable(caption = "Métricas globales — modelo_multiple") %>%
-  kable_styling(bootstrap_options = c("striped", "hover"), full_width = FALSE)
+  kable(caption = "Métricas globales -- modelo multiple")
 ```
 
 El **R²** indica qué proporción de la varianza del precio es explicada por el conjunto de predictores. El **R² Ajustado** penaliza la adición de variables irrelevantes: si es considerablemente menor que R², el modelo puede estar incluyendo variables poco útiles. El **F-statistic** y su p-valor prueban que al menos un predictor aporta información; un p-valor < 0.05 confirma que el modelo como conjunto es estadísticamente significativo.
@@ -684,8 +687,7 @@ overfitting_df %>%
   mutate(Diferencia = round(Train - Test, 4),
          Train = round(Train, 4),
          Test  = round(Test, 4)) %>%
-  kable(caption = "Comparación R² Train vs Test por modelo") %>%
-  kable_styling(bootstrap_options = c("striped", "hover"), full_width = FALSE)
+  kable(caption = "Comparación R² Train vs Test por modelo")
 ```
 
 ```{r overfitting-grafico}
@@ -704,7 +706,7 @@ ggplot(overfitting_df, aes(x = Modelo, y = R2, fill = Conjunto)) +
 
 El `modelo_step`, al seleccionar únicamente las variables más relevantes por AIC, tiende a generalizar mejor que el `modelo_multiple` completo, reduciendo el riesgo de sobreajuste al eliminar predictores de bajo aporte. Si la diferencia entre Train y Test es mínima en ambos modelos, se concluye que no existe sobreajuste significativo y las variables seleccionadas capturan patrones reales y no ruido.
 
-# Actividad 10 — Modelo Final y Análisis Completo de Residuos
+# Actividad 10 -- Modelo Final y Análisis Completo de Residuos
 
 ## Construcción del Modelo Final
 
@@ -733,7 +735,7 @@ df_res <- data.frame(residuos = residuos, ajustados = ajustados)
 ggplot(df_res, aes(sample = residuos)) +
   stat_qq(color = "#2E86C1", alpha = 0.5, size = 1) +
   stat_qq_line(color = "#C0392B", linewidth = 1) +
-  labs(title = "Q-Q Plot de Residuos — Modelo Final",
+  labs(title = "Q-Q Plot de Residuos -- Modelo Final",
        subtitle = "Los puntos deben seguir la línea roja para asumir normalidad",
        x = "Cuantiles Teóricos", y = "Cuantiles Muestrales") +
   theme_minimal()
@@ -834,8 +836,7 @@ resultados_finales <- bind_rows(
   select(Modelo, R2, RMSE, MAE)
 
 resultados_finales %>%
-  kable(caption = "Comparación de métricas en conjunto de prueba") %>%
-  kable_styling(bootstrap_options = c("striped", "hover", "condensed"), full_width = FALSE)
+  kable(caption = "Comparación de métricas en conjunto de prueba")
 ```
 
 ```{r barras-comparacion, fig.height=4}
@@ -986,11 +987,10 @@ resultados_regularizacion <- tibble(
 )
 
 kable(resultados_regularizacion,
-      caption = "Comparación de modelos de regularización") %>%
-  kable_styling(bootstrap_options = c("striped","hover"))
+      caption = "Comparación de modelos de regularización")
 ```
 
-# Actividad 12 — Evaluación de Todos los Modelos en el Conjunto de Prueba
+# Actividad 12 -- Evaluación de Todos los Modelos en el Conjunto de Prueba
 
 En esta sección se aplican **todos** los modelos construidos al conjunto de prueba y se evalúan con las mismas métricas para una comparación justa.
 
@@ -1038,9 +1038,7 @@ comparacion_global <- bind_rows(
   arrange(RMSE)
 
 kable(comparacion_global,
-      caption = "Comparación de todos los modelos en el conjunto de prueba") %>%
-  kable_styling(bootstrap_options = c("striped", "hover", "condensed"), full_width = FALSE) %>%
-  row_spec(1, bold = TRUE, color = "white", background = "#27AE60")
+      caption = "Comparación de todos los modelos en el conjunto de prueba")
 ```
 
 La fila resaltada en verde corresponde al modelo con menor RMSE en el conjunto de prueba.
@@ -1106,7 +1104,7 @@ ggplot(comparacion_global, aes(x = reorder(Modelo, R2), y = R2)) +
   theme_minimal()
 ```
 
-# Actividad 13 — Discusión de Resultados y Selección del Mejor Modelo
+# Actividad 13 -- Discusión de Resultados y Selección del Mejor Modelo
 
 ## Análisis de Overfitting en Todos los Modelos
 
@@ -1154,7 +1152,7 @@ ggplot(overfitting_global, aes(x = Modelo, y = R2, fill = Conjunto)) +
             vjust = -0.4, size = 3) +
   scale_fill_manual(values = c("Train" = "#2E86C1", "Test" = "#E74C3C")) +
   scale_y_continuous(limits = c(0, max(overfitting_global$R2) * 1.15)) +
-  labs(title = "R² en Train vs Test — Todos los Modelos",
+  labs(title = "R² en Train vs Test -- Todos los Modelos",
        subtitle = "Una brecha pequeña indica buena generalización (sin overfitting)",
        x = NULL, y = "R²", fill = "Conjunto") +
   theme_minimal() +
@@ -1167,8 +1165,7 @@ overfitting_global %>%
   mutate(Diferencia = round(Train - Test, 4),
          Train = round(Train, 4),
          Test  = round(Test, 4)) %>%
-  kable(caption = "Diferencia R² Train-Test por modelo (indicador de overfitting)") %>%
-  kable_styling(bootstrap_options = c("striped", "hover"), full_width = FALSE)
+  kable(caption = "Diferencia R² Train-Test por modelo (indicador de overfitting)")
 ```
 
 ## Discusión
@@ -1231,7 +1228,7 @@ ggplot(data.frame(error = errores_mejor), aes(x = error)) +
            label = paste0("Media = $", round(mean(errores_mejor), 1)),
            vjust = 2, hjust = -0.1, color = "#F39C12", size = 3.5) +
   scale_x_continuous(labels = dollar) +
-  labs(title = paste("Distribución de Errores de Predicción —", mejor_nombre),
+  labs(title = paste("Distribución de Errores de Predicción --", mejor_nombre),
        subtitle = "Un error centrado en 0 indica ausencia de sesgo sistemático",
        x = "Error (Predicho - Real, USD)", y = "Frecuencia") +
   theme_minimal()

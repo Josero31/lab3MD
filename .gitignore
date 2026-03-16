@@ -47,3 +47,7 @@ po/*~
 
 # RStudio Connect folder
 rsconnect/
+
+# Archivos intermedios de LaTeX
+*.tex
+*.log
