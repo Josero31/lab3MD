@@ -854,6 +854,143 @@ resultados_finales %>%
 
 El `modelo_final`, construido con las variables de mayor aporte y menor multicolinealidad, ofrece un balance adecuado entre ajuste y generalización. Si su RMSE y MAE en prueba son similares o inferiores a los del `modelo_multiple`, confirma que simplificar el modelo no sacrificó capacidad predictiva y reduce el riesgo de sobreajuste.
 
+# Actividad 11 Modelos de Regularización
+
+## Preparacion de datos
+
+```{r}
+library(glmnet)
+
+# matriz de predictores
+x_train <- model.matrix(price_num ~ ., train_data)[,-1]
+x_test  <- model.matrix(price_num ~ ., test_data)[,-1]
+
+# variable objetivo
+y_train <- train_data$price_num
+y_test  <- test_data$price_num
+```
+
+## Ridge
+
+```{r}
+set.seed(123)
+
+cv_ridge <- cv.glmnet(
+  x_train,
+  y_train,
+  alpha = 0,
+  nfolds = 10
+)
+
+lambda_ridge <- cv_ridge$lambda.min
+
+lambda_ridge
+coef(cv_ridge, s = "lambda.min")
+
+plot(cv_ridge$glmnet.fit,
+     xvar = "lambda",
+     label = TRUE,
+     main = "Regularization Path - Ridge")
+```
+
+## Lasso
+
+```{r}
+set.seed(123)
+
+cv_lasso <- cv.glmnet(
+  x_train,
+  y_train,
+  alpha = 1,
+  nfolds = 10
+)
+
+lambda_lasso <- cv_lasso$lambda.min
+
+lambda_lasso
+coef(cv_lasso, s = "lambda.min")
+plot(cv_lasso$glmnet.fit,
+     xvar = "lambda",
+     label = TRUE,
+     main = "Regularization Path - Lasso")
+```
+
+## Elastic Net
+
+```{r}
+set.seed(123)
+
+cv_elastic <- cv.glmnet(
+  x_train,
+  y_train,
+  alpha = 0.5,
+  nfolds = 10
+)
+
+lambda_elastic <- cv_elastic$lambda.min
+
+lambda_elastic
+coef(cv_elastic, s = "lambda.min")
+plot(cv_elastic$glmnet.fit,
+     xvar = "lambda",
+     label = TRUE,
+     main = "Regularization Path - Elastic Net")
+```
+
+## Evaluacion de Modelos
+
+```{r}
+rmse <- function(real, pred){
+  sqrt(mean((real - pred)^2))
+}
+
+mae <- function(real, pred){
+  mean(abs(real - pred))
+}
+
+pred_ridge_train <- predict(cv_ridge, s = "lambda.min", newx = x_train)
+pred_ridge_test  <- predict(cv_ridge, s = "lambda.min", newx = x_test)
+
+pred_lasso_train <- predict(cv_lasso, s = "lambda.min", newx = x_train)
+pred_lasso_test  <- predict(cv_lasso, s = "lambda.min", newx = x_test)
+
+pred_elastic_train <- predict(cv_elastic, s = "lambda.min", newx = x_train)
+pred_elastic_test  <- predict(cv_elastic, s = "lambda.min", newx = x_test)
+
+resultados_regularizacion <- tibble(
+  Modelo = c("Ridge", "Lasso", "ElasticNet"),
+
+  RMSE_train = c(
+    rmse(y_train, pred_ridge_train),
+    rmse(y_train, pred_lasso_train),
+    rmse(y_train, pred_elastic_train)
+  ),
+
+  RMSE_test = c(
+    rmse(y_test, pred_ridge_test),
+    rmse(y_test, pred_lasso_test),
+    rmse(y_test, pred_elastic_test)
+  ),
+
+  MAE_train = c(
+    mae(y_train, pred_ridge_train),
+    mae(y_train, pred_lasso_train),
+    mae(y_train, pred_elastic_train)
+  ),
+
+  MAE_test = c(
+    mae(y_test, pred_ridge_test),
+    mae(y_test, pred_lasso_test),
+    mae(y_test, pred_elastic_test)
+  )
+)
+
+kable(resultados_regularizacion,
+      caption = "Comparación de modelos de regularización") %>%
+  kable_styling(bootstrap_options = c("striped","hover"))
+```
+
+
 # Conclusiones
 
 1. **Distribución geográfica**: Los Ángeles (26,5%) y Nueva York (21,1%) concentran casi la mitad de los listings del dataset. Hawái y San Diego destacan como destinos turísticos con alta presencia.
